@@ -12,9 +12,6 @@ let zero_address = 0x0000000000000000000000000000000000000000
 let false = False
 let true = True
 
-(* Heroes type *)
-type HeroesTrait =
-| HeroesTrait of String String
 
 (* Error exception *)
 type Error =
