@@ -213,7 +213,7 @@ field spenders: Map Uint256 ByStr20 = Emp Uint256 ByStr20
 (* Mapping from token owner to operators authorized by the token owner *)
 field operators: Map ByStr20 (Map ByStr20 Bool) = Emp ByStr20 (Map ByStr20 Bool)
 
-
+field gear_evolution_addr: ByStr20 = zero_address
 (* Emit Errors *)
 procedure Throw(error: Error)
   e = make_error error;
@@ -335,6 +335,21 @@ procedure RequireOwnerOrOperator(address: ByStr20)
   end
 end
 
+procedure RequireOwnerOrOperatorOrEvolution(address: ByStr20)
+  is_owner = builtin eq _sender address;
+  has_operator <- exists operators[address][_sender];
+  gear_evolution_addr_tmp <- gear_evolution_addr;
+  is_evolution = builtin eq _sender gear_evolution_addr_tmp;
+  is_half_allowed = orb is_owner has_operator;
+  is_allowed = orb is_half_allowed is_evolution
+  match is_allowed with
+  | True =>
+  | False =>
+    error = NotOwnerOrOperatorError;
+    Throw error
+  end
+end
+
 procedure RequireAccessToTransfer(token_owner: ByStr20, token_id: Uint256)
   (* check if _sender is token owner *)
   is_token_owner = builtin eq token_owner _sender;
@@ -442,11 +457,12 @@ procedure BurnToken(token_id: Uint256)
     error = TokenNotFoundError;
     Throw error
   | Some token_owner =>
-    RequireOwnerOrOperator token_owner;
+    RequireOwnerOrOperatorOrEvolution token_owner;
     (* Destroy existing token *)
     delete token_owners[token_id];
     delete token_uris[token_id];
     delete spenders[token_id];
+    delete token_traits[token_id];
 
     (* subtract one from the balance *)
     UpdateBalance sub_operation token_owner;
@@ -717,14 +733,15 @@ transition Burn(token_id: Uint256)
   | Some token_owner =>
     BurnToken token_id;
     msg_to_sender = {
-      _tag: "ZRC6_BurnCallback";
+      _tag: "Heroes_BurnCallback";
       _recipient: _sender;
       _amount: Uint128 0;
       token_owner: token_owner;
       token_id: token_id
     };
     msgs = one_msg msg_to_sender;
-    send msgs
+    send msgs;
+    delete token_traits
   end
 end
 
@@ -1044,5 +1061,11 @@ transition TokenTraitCallback(token_id: Uint256, tokenname: String, token_level:
 end
 
 transition SetTraitAddr(trait_addr: ByStr20)
+  RequireContractOwner;
   gear_trait_addr := trait_addr
+end
+
+transition SetEvolutionAddr(address: ByStr20)
+  RequireContractOwner;
+  gear_evolution_addr := address
 end
