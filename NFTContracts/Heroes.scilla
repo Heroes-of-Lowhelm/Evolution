@@ -42,6 +42,13 @@ let sub_operation = Sub
 let min_fee_bps = Uint128 1
 let max_fee_bps = Uint128 10000
 
+let level_one = "1*"
+let level_two = "2*"
+let level_three = "3*"
+let level_four = "4*"
+let level_five = "5*"
+let level_six = "6*"
+
 (* Library functions *)
 let one_msg =
   fun (msg: Message) =>
@@ -81,6 +88,7 @@ type Error =
   | InvalidFeeBPSError
   | ZeroAddressDestinationError
   | ThisAddressDestinationError
+  | CantEvolveError
 
 let make_error =
   fun (result: Error) =>
@@ -104,6 +112,7 @@ let make_error =
       | ZeroAddressDestinationError        => Int32 -16
       | ThisAddressDestinationError        => Int32 -17
       | NotContractOwnershipRecipientError => Int32 -18
+      | CantEvolveError                    => Int32 -19
       end
     in
     { _exception: "Error"; code: result_code }
@@ -348,7 +357,7 @@ procedure RequireOwnerOrOperatorOrEvolution(address: ByStr20)
   hero_evolution_addr_tmp <- hero_evolution_addr;
   is_evolution = builtin eq _sender hero_evolution_addr_tmp;
   is_half_allowed = orb is_owner has_operator;
-  is_allowed = orb is_half_allowed is_evolution
+  is_allowed = orb is_half_allowed is_evolution;
   match is_allowed with
   | True =>
   | False =>
@@ -1267,4 +1276,66 @@ end
 transition SetEvolutionAddr(address: ByStr20)
   RequireContractOwner;
   hero_evolution_addr := address
+end
+
+(* Evolve Heroes *)
+(* Mint new token and get substats from the old one *)
+transition EvolveHeroes(id_lv_max: Uint256, id_lv_any: Uint256)
+    token_trait_old <- token_traits[id_lv_max];
+    match token_trait_old with
+    | Some value =>
+      match value with
+      | HeroesTrait tokenname token_level =>
+        is_lv1 = builtin eq token_level level_one;
+        is_lv2 = builtin eq token_level level_two;
+        is_lv3 = builtin eq token_level level_three;
+        is_lv4 = builtin eq token_level level_four;
+        is_lv5 = builtin eq token_level level_five;
+        is_lv6 = builtin eq token_level level_six;
+        match is_lv6 with
+        | True =>
+          error = CantEvolveError;
+          Throw error
+        | False =>
+        end;
+        new_token_level = match is_lv1 with
+        | True => level_two
+        | False => 
+          match is_lv2 with
+          | True => level_three
+          | False =>
+            match is_lv3 with
+            | True => level_four
+            | False =>
+              match is_lv4 with
+              | True => level_five
+              | False => level_six
+              end
+            end
+          end
+        end;
+        address_to_mint <- token_owners[id_lv_max];
+        match address_to_mint with
+        | Some to =>
+          (* generate ID *)
+          current_token_id_count <- token_id_count;
+          new_token_id_count = builtin add current_token_id_count one;
+          token_id_count := new_token_id_count;
+          token_id = new_token_id_count;
+          (* mint a new token *)
+          token_owners[token_id] := to;
+          (* add one to the token owner balance *)
+          UpdateBalance add_operation to;
+          (* add one to the total supply *)
+          current_supply <- total_supply;
+          new_supply = builtin add current_supply one;
+          total_supply := new_supply;
+          (* Create NFT trait *)
+          token_trait = HeroesTrait tokenname new_token_level;
+          token_traits[token_id] := token_trait
+        | None =>
+        end
+      end
+    | None =>
+    end
 end
