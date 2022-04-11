@@ -89,6 +89,7 @@ type Error =
   | ZeroAddressDestinationError
   | ThisAddressDestinationError
   | CantEvolveError
+  | NotEvolutionError
 
 let make_error =
   fun (result: Error) =>
@@ -113,6 +114,7 @@ let make_error =
       | ThisAddressDestinationError        => Int32 -17
       | NotContractOwnershipRecipientError => Int32 -18
       | CantEvolveError                    => Int32 -19
+      | NotEvolutionError                  => Int32 -20
       end
     in
     { _exception: "Error"; code: result_code }
@@ -362,6 +364,17 @@ procedure RequireOwnerOrOperatorOrEvolution(address: ByStr20)
   | True =>
   | False =>
     error = NotOwnerOrOperatorError;
+    Throw error
+  end
+end
+
+procedure RequireEvolutionContract()
+  hero_evolution_addr_tmp <- hero_evolution_addr;
+  is_evolution = builtin eq _sender hero_evolution_addr_tmp;
+  match is_evolution with
+  | True =>
+  | False =>
+    error = NotEvolutionError;
     Throw error
   end
 end
@@ -1281,6 +1294,7 @@ end
 (* Evolve Heroes *)
 (* Mint new token and get substats from the old one *)
 transition EvolveHeroes(id_lv_max: Uint256, id_lv_any: Uint256)
+    RequireEvolutionContract;
     token_trait_old <- token_traits[id_lv_max];
     match token_trait_old with
     | Some value =>
@@ -1332,7 +1346,19 @@ transition EvolveHeroes(id_lv_max: Uint256, id_lv_any: Uint256)
           total_supply := new_supply;
           (* Create NFT trait *)
           token_trait = HeroesTrait tokenname new_token_level;
-          token_traits[token_id] := token_trait
+          token_traits[token_id] := token_trait;
+
+          (* Callback *)
+          msg_to_recipient = {
+            _tag: "EvolveHeroesCallback";
+            _recipient: _sender;
+            _amount: Uint128 0;
+            id_evoluated: token_id;
+            id_lv_max: id_lv_max;
+            id_lv_any: id_lv_any
+          };
+          msgs = one_msg msg_to_recipient;
+          send msgs
         | None =>
         end
       end
