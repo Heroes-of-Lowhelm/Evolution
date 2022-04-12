@@ -71,6 +71,8 @@ type Error =
   | InvalidFeeBPSError
   | ZeroAddressDestinationError
   | ThisAddressDestinationError
+  | NotEvolutionError
+  | CantEvolveError
 
 
 let make_error =
@@ -95,6 +97,8 @@ let make_error =
       | ZeroAddressDestinationError        => Int32 -16
       | ThisAddressDestinationError        => Int32 -17
       | NotContractOwnershipRecipientError => Int32 -18
+      | NotEvolutionError                  => Int32 -19
+      | CantEvolveError                    => Int32 -20
       end
     in
     { _exception: "Error"; code: result_code }
@@ -346,6 +350,17 @@ procedure RequireOwnerOrOperatorOrEvolution(address: ByStr20)
   | True =>
   | False =>
     error = NotOwnerOrOperatorError;
+    Throw error
+  end
+end
+
+procedure RequireEvolutionContract()
+gear_evolution_addr_tmp <- gear_evolution_addr;
+  is_evolution = builtin eq _sender gear_evolution_addr_tmp;
+  match is_evolution with
+  | True =>
+  | False =>
+    error = NotEvolutionError;
     Throw error
   end
 end
@@ -1068,4 +1083,80 @@ end
 transition SetEvolutionAddr(address: ByStr20)
   RequireContractOwner;
   gear_evolution_addr := address
+end
+
+transition EvolveGears(id_lv_max: Uint256, id_lv_any: Uint256)
+  RequireEvolutionContract;
+  token_trait_old <- token_traits[id_lv_max];
+  match token_trait_old with
+    | Some value =>
+      match value with
+      | HeroesTrait tokenname token_level mainstat substats=>
+        is_lv1 = builtin eq token_level level_one;
+        is_lv2 = builtin eq token_level level_two;
+        is_lv3 = builtin eq token_level level_three;
+        is_lv4 = builtin eq token_level level_four;
+        is_lv5 = builtin eq token_level level_five;
+        is_lv6 = builtin eq token_level level_six;
+        match is_lv6 with
+        | True =>
+          error = CantEvolveError;
+          Throw error
+        | False =>
+        end;
+        new_token_level = match is_lv1 with
+        | True => level_two
+        | False => 
+          match is_lv2 with
+          | True => level_three
+          | False =>
+            match is_lv3 with
+            | True => level_four
+            | False =>
+              match is_lv4 with
+              | True => level_five
+              | False => level_six
+              end
+            end
+          end
+        end;
+        (* 10% Boost here *)
+        new_token_substats = GetSubStats substats;
+
+        address_to_mint <- token_owners[id_lv_max];
+        match address_to_mint with
+        | Some to =>
+          (* generate ID *)
+          current_token_id_count <- token_id_count;
+          new_token_id_count = builtin add current_token_id_count one;
+          token_id_count := new_token_id_count;
+          token_id = new_token_id_count;
+          (* mint a new token *)
+          token_owners[token_id] := to;
+          (* add one to the token owner balance *)
+          UpdateBalance add_operation to;
+          (* add one to the total supply *)
+          current_supply <- total_supply;
+          new_supply = builtin add current_supply one;
+          total_supply := new_supply;
+          (* Create NFT trait *)
+          token_trait = HeroesTrait tokenname new_token_level mainstat new_token_substats;
+          token_traits[token_id] := token_trait;
+
+          (* Callback *)
+          msg_to_recipient = {
+            _tag: "EvolveHeroesCallback";
+            _recipient: _sender;
+            _amount: Uint128 0;
+            id_evoluated: token_id;
+            id_lv_max: id_lv_max;
+            id_lv_any: id_lv_any
+          };
+          msgs = one_msg msg_to_recipient;
+          send msgs
+        | None =>
+        end
+      end
+    | None =>
+    end
 end
