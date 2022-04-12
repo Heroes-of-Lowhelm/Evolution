@@ -32,6 +32,13 @@ let sub_operation = Sub
 let min_fee_bps = Uint128 1
 let max_fee_bps = Uint128 10000
 
+let level_one = "1*"
+let level_two = "2*"
+let level_three = "3*"
+let level_four = "4*"
+let level_five = "5*"
+let level_six = "6*"
+
 (* Library functions *)
 let one_msg =
   fun (msg: Message) =>
@@ -205,6 +212,9 @@ field total_supply: Uint256 = Uint256 0
 (* Mapping from token owner to the number of existing tokens *)
 field balances: Map ByStr20 Uint256 = Emp ByStr20 Uint256
 
+(* Mapping from token id to boost number *)
+field token_boost_num: Map Uint256 Uint32 = Emp Uint256 Uint32
+
 (* Set for minters *)
 (* `initial_contract_owner` is a minter by default *)
 field minters: Map ByStr20 Bool =
@@ -345,7 +355,7 @@ procedure RequireOwnerOrOperatorOrEvolution(address: ByStr20)
   gear_evolution_addr_tmp <- gear_evolution_addr;
   is_evolution = builtin eq _sender gear_evolution_addr_tmp;
   is_half_allowed = orb is_owner has_operator;
-  is_allowed = orb is_half_allowed is_evolution
+  is_allowed = orb is_half_allowed is_evolution;
   match is_allowed with
   | True =>
   | False =>
@@ -434,7 +444,8 @@ procedure MintToken(to: ByStr20, seed: Uint256, is_high_level: Bool)
   current_supply <- total_supply;
   new_supply = builtin add current_supply one;
   total_supply := new_supply;
-
+  boost_zero = Uint32 0;
+  token_boost_num[token_id] := boost_zero;
   (* create nft traits according to the seed *)
   gear_trait_addr_tmp <- gear_trait_addr;
   msg = {_tag: "GenerateTrait"; _recipient: gear_trait_addr_tmp; _amount: Uint128 0; token_id: token_id; seed: seed; is_high_level: is_high_level};
@@ -755,8 +766,7 @@ transition Burn(token_id: Uint256)
       token_id: token_id
     };
     msgs = one_msg msg_to_sender;
-    send msgs;
-    delete token_traits
+    send msgs
   end
 end
 
@@ -1120,9 +1130,13 @@ transition EvolveGears(id_lv_max: Uint256, id_lv_any: Uint256)
             end
           end
         end;
-        (* 10% Boost here *)
-        new_token_substats = GetSubStats substats;
-
+        (* Boost here *)
+        new_token_boost_tmp <- token_boost_num[id_lv_max];
+        boost_one = Uint32 1;
+        new_token_boost = match new_token_boost_tmp with
+        | Some value => builtin add value boost_one
+        | None => boost_one
+        end;
         address_to_mint <- token_owners[id_lv_max];
         match address_to_mint with
         | Some to =>
@@ -1140,7 +1154,7 @@ transition EvolveGears(id_lv_max: Uint256, id_lv_any: Uint256)
           new_supply = builtin add current_supply one;
           total_supply := new_supply;
           (* Create NFT trait *)
-          token_trait = HeroesTrait tokenname new_token_level mainstat new_token_substats;
+          token_trait = HeroesTrait tokenname new_token_level mainstat substats;
           token_traits[token_id] := token_trait;
 
           (* Callback *)
